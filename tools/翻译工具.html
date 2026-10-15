@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>简易翻译工具</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; padding: 30px; }
+.container { max-width: 600px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 30px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+h1 { text-align: center; color: #333; margin-bottom: 20px; font-size: 22px; }
+.tabs { display: flex; gap: 10px; margin-bottom: 16px; }
+.tab { flex: 1; padding: 8px; text-align: center; border: 2px solid #ddd; border-radius: 6px; cursor: pointer; background: #fafafa; }
+.tab.active { border-color: #4a90d9; background: #e8f2ff; color: #4a90d9; font-weight: bold; }
+textarea { width: 100%; height: 100px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; resize: vertical; font-family: inherit; }
+textarea:focus { outline: none; border-color: #4a90d9; }
+.btn { width: 100%; padding: 12px; margin: 16px 0; background: #4a90d9; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+.btn:hover { background: #3a7bc8; }
+.btn:disabled { background: #aaa; }
+.result { min-height: 100px; padding: 12px; background: #f8f9fa; border-radius: 8px; font-size: 15px; line-height: 1.6; white-space: pre-wrap; }
+.status { text-align: center; color: #888; margin-top: 10px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🌐 简易翻译工具</h1>
+  <div class="tabs">
+    <div class="tab active" data-dir="en2zh">英文 → 中文</div>
+    <div class="tab" data-dir="zh2en">中文 → 英文</div>
+  </div>
+  <textarea id="input" placeholder="请输入要翻译的文字..."></textarea>
+  <button class="btn" id="translateBtn">翻译</button>
+  <div class="result" id="result">翻译结果会显示在这里...</div>
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+let dir = 'en2zh';
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    dir = tab.dataset.dir;
+    document.getElementById('result').textContent = '翻译结果会显示在这里...';
+  };
+});
+
+document.getElementById('translateBtn').onclick = async () => {
+  const text = document.getElementById('input').value.trim();
+  if (!text) { alert('请输入要翻译的文字'); return; }
+  
+  const btn = document.getElementById('translateBtn');
+  const status = document.getElementById('status');
+  const result = document.getElementById('result');
+  btn.disabled = true;
+  status.textContent = '翻译中...';
+  result.textContent = '';
+
+  try {
+    // 使用 MyMemory 翻译API（国内可用）
+    const pair = dir === 'en2zh' ? 'en|zh-CN' : 'zh-CN|en';
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${pair}`;
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.responseStatus === 200) {
+      result.textContent = data.responseData.translatedText;
+      status.textContent = '✅ 翻译完成';
+    } else {
+      result.textContent = '翻译失败，请重试';
+      status.textContent = '❌ 错误';
+    }
+  } catch (e) {
+    result.textContent = '网络错误：' + e.message;
+    status.textContent = '❌ 网络错误';
+  } finally {
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
