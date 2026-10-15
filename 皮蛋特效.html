@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>皮蛋特效 · 花瓣 · 爱心</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #07040d; }
+  #stage {
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(120% 90% at 50% 12%, #3a1852 0%, #1d0e30 38%, #0a0514 74%, #05030a 100%);
+  }
+  canvas {
+    position: fixed; inset: 0;
+    display: block;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .hint {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    font: 500 14px/1.6 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    letter-spacing: 3px;
+    color: rgba(255, 220, 240, .65);
+    pointer-events: none;
+    user-select: none;
+    text-shadow: 0 0 14px rgba(255, 110, 180, .75);
+    animation: breathe 2.6s ease-in-out infinite;
+    white-space: nowrap;
+  }
+  @keyframes breathe { 0%, 100% { opacity: .28 } 50% { opacity: .95 } }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<canvas id="cv"></canvas>
+<div class="hint">点击屏幕任意位置 ✦</div>
+<script>
+(function () {
+  'use strict';
+  var cv  = document.getElementById('cv');
+  var ctx = cv.getContext('2d');
+  var W = 0, H = 0, DPR = 1;
+
+  // 预加载猫咪图片
+  var catImg = new Image();
+  catImg.src = '皮蛋.jpg';
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    cv.width  = Math.floor(W * DPR);
+    cv.height = Math.floor(H * DPR);
+    cv.style.width  = W + 'px';
+    cv.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var rand = function (a, b) { return a + Math.random() * (b - a); };
+  var pick = function (arr) { return arr[(Math.random() * arr.length) | 0]; };
+  var PETAL_COLORS = ['#ff9ec4','#ff7fb0','#ffb3d1','#ff5c8a','#ffd6e8','#ff8ab8','#f7a8c4','#ffc2dd'];
+  var HEART_COLORS = ['#ff3b6b','#ff6b8f','#ff2d55','#ff8fa3','#ff1744','#ff9ab0'];
+  var TEXT_COLORS  = ['#ffe27a','#ffd54a','#fff3b0','#ffb300','#ffffff','#ffcf5c'];
+  var MAX_PARTICLES = 700;
+  var particles = [];
+  var rings = [];
+
+  function Particle(x, y, vx, vy) {
+    this.x = x; this.y = y;
+    this.vx = vx; this.vy = vy;
+    this.rot = rand(0, Math.PI * 2);
+    this.vr = rand(-0.07, 0.07);
+    this.phase = rand(0, Math.PI * 2);
+    this.swayAmp = rand(0.5, 1.6);
+    this.swayFreq = rand(0.02, 0.06);
+    this.life = 1;
+    this.dead = false;
+  }
+  Particle.prototype.baseUpdate = function (t) {
+    this.phase += this.swayFreq * t;
+    this.x += (this.vx + Math.sin(this.phase) * this.swayAmp) * t;
+    this.y += this.vy * t;
+    this.rot += this.vr * t;
+    this.vx *= Math.pow(this.drag, t);
+    this.vy *= Math.pow(this.drag, t);
+    this.life -= this.decay * t;
+    if (this.life <= 0 ||
+        this.y > H + 420 || this.y < -H * 0.9 ||
+        this.x < -320 || this.x > W + 320) {
+      this.dead = true;
+    }
+  };
+
+  /* 花瓣 */
+  function Petal(x, y, vx, vy, soft) {
+    Particle.call(this, x, y, vx, vy);
+    this.type = 'petal';
+    this.soft = !!soft;
+    this.size = soft ? rand(7, 15) : rand(9, 19);
+    this.color = pick(PETAL_COLORS);
+    this.drag = 0.986;
+    this.gravity = 0.05;
+    this.decay = soft ? 0.0032 : 0.0042;
+  }
+  Petal.prototype = Object.create(Particle.prototype);
+  Petal.prototype.update = function (t) {
+    this.vy += this.gravity * t;
+    this.baseUpdate(t);
+  };
+  Petal.prototype.draw = function () {
+    var s = this.size;
+    var flip = Math.cos(this.phase * 1.7);
+    if (Math.abs(flip) < 0.12) flip = flip < 0 ? -0.12 : 0.12;
+    ctx.scale(flip, 1);
+    ctx.beginPath();
+    ctx.moveTo(0, -s);
+    ctx.bezierCurveTo(s * 0.95, -s * 0.55, s * 0.72, s * 0.6, 0, s);
+    ctx.bezierCurveTo(-s * 0.72, s * 0.6, -s * 0.95, -s * 0.55, 0, -s);
+    ctx.closePath();
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(0, -s * 0.85);
+    ctx.quadraticCurveTo(s * 0.22, 0, 0, s * 0.85);
+    ctx.strokeStyle = 'rgba(255,255,255,.45)';
+    ctx.lineWidth = Math.max(0.6, s * 0.1);
+    ctx.stroke();
+  };
+
+  /* 爱心 */
+  function Heart(x, y, vx, vy, soft) {
+    Particle.call(this, x, y, vx, vy);
+    this.type = 'heart';
+    this.soft = !!soft;
+    this.size = soft ? rand(6, 13) : rand(8, 17);
+    this.color = pick(HEART_COLORS);
+    this.drag = 0.984;
+    this.gravity = -0.014;
+    this.decay = soft ? 0.0038 : 0.0058;
+    this.swayAmp = rand(0.4, 1.3);
+    this.swayFreq = rand(0.03, 0.08);
+    this.pulse = 1;
+  }
+  Heart.prototype = Object.create(Particle.prototype);
+  Heart.prototype.update = function (t) {
+    this.vy += this.gravity * t;
+    this.baseUpdate(t);
+    this.pulse = 1 + Math.sin(this.phase * 3) * 0.08;
+  };
+  Heart.prototype.draw = function () {
+    var s = this.size;
+    ctx.scale(this.pulse, this.pulse);
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.moveTo(0, s);
+    ctx.bezierCurveTo(-s * 1.5, -s * 0.35, -s * 0.72, -s * 1.35, 0, -s * 0.5);
+    ctx.bezierCurveTo(s * 0.72, -s * 1.35, s * 1.5, -s * 0.35, 0, s);
+    ctx.closePath();
+    ctx.fill();
+  };
+
+  /* 皮蛋文字 */
+  function PiDan(x, y, vx, vy, soft) {
+    Particle.call(this, x, y, vx, vy);
+    this.type = 'text';
+    this.soft = !!soft;
+    this.size = soft ? rand(14, 24) : rand(20, 42);
+    this.color = pick(TEXT_COLORS);
+    this.drag = 0.982;
+    this.gravity = -0.010;
+    this.decay = soft ? 0.0048 : 0.0066;
+    this.vr = rand(-0.03, 0.03);
+    this.pulse = 1;
+    this.font = '900 ' + this.size.toFixed(1) +
+                'px "PingFang SC", "Microsoft YaHei", "Arial Black", sans-serif';
+  }
+  PiDan.prototype = Object.create(Particle.prototype);
+  PiDan.prototype.update = function (t) {
+    this.vy += this.gravity * t;
+    this.baseUpdate(t);
+    this.pulse = 1 + Math.sin(this.phase * 2.5) * 0.1;
+  };
+  PiDan.prototype.draw = function () {
+    ctx.scale(this.pulse, this.pulse);
+    ctx.font = this.font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = this.color;
+    ctx.shadowBlur = 16;
+    ctx.fillText('皮蛋', 0, 0);
+  };
+
+  /* 猫咪图片粒子 */
+  function CatImg(x, y, vx, vy, soft) {
+    Particle.call(this, x, y, vx, vy);
+    this.type = 'cat';
+    this.soft = !!soft;
+    this.size = soft ? rand(80, 130) : rand(120, 200);
+    this.drag = 0.98;
+    this.gravity = -0.008;
+    this.decay = soft ? 0.004 : 0.0055;
+    this.pulse = 1;
+  }
+  CatImg.prototype = Object.create(Particle.prototype);
+  CatImg.prototype.update = function (t) {
+    this.vy += this.gravity * t;
+    this.baseUpdate(t);
+    this.pulse = 1 + Math.sin(this.phase * 2) * 0.08;
+  };
+  CatImg.prototype.draw = function () {
+    if (!catImg.complete) return;
+    var s = this.size;
+    ctx.scale(this.pulse, this.pulse);
+    // 圆形裁剪猫咪图片
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(0, 0, s / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    // 计算图片宽高比，居中裁剪
+    var imgRatio = catImg.width / catImg.height;
+    var drawW, drawH;
+    if (imgRatio > 1) {
+      drawH = s;
+      drawW = s * imgRatio;
+    } else {
+      drawW = s;
+      drawH = s / imgRatio;
+    }
+    ctx.drawImage(catImg, -drawW / 2, -drawH / 2, drawW, drawH);
+    ctx.restore();
+    // 边框
+    ctx.beginPath();
+    ctx.arc(0, 0, s / 2, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  };
+
+  function push(p) {
+    particles.push(p);
+    if (particles.length > MAX_PARTICLES) {
+      particles.splice(0, particles.length - MAX_PARTICLES);
+    }
+  }
+
+  function burst(x, y) {
+    var i, a, sp;
+    // 花瓣炸开
+    for (i = 0; i < 22; i++) {
+      a  = rand(0, Math.PI * 2);
+      sp = rand(2.5, 12);
+      push(new Petal(x, y, Math.cos(a) * sp, Math.sin(a) * sp - rand(0, 2.5)));
+    }
+    // 爱心向上迸发
+    for (i = 0; i < 14; i++) {
+      a  = rand(-Math.PI * 0.9, -Math.PI * 0.1);
+      sp = rand(3, 10);
+      push(new Heart(x, y, Math.cos(a) * sp, Math.sin(a) * sp));
+    }
+    // 皮蛋文字飞出
+    for (i = 0; i < 8; i++) {
+      a  = rand(-Math.PI * 0.9, -Math.PI * 0.1);
+      sp = rand(2, 7);
+      push(new PiDan(x, y, Math.cos(a) * sp, Math.sin(a) * sp));
+    }
+    // 猫咪图片飞出
+    for (i = 0; i < 3; i++) {
+      a  = rand(-Math.PI * 0.9, -Math.PI * 0.1);
+      sp = rand(2, 6);
+      push(new CatImg(x, y, Math.cos(a) * sp, Math.sin(a) * sp));
+    }
+    // 全屏花瓣
+    for (i = 0; i < 22; i++) {
+      push(new Petal(rand(0, W), rand(-H * 0.5, -10), rand(-1.4, 1.4), rand(1.2, 3.8), true));
+    }
+    // 全屏爱心
+    for (i = 0; i < 12; i++) {
+      push(new Heart(rand(0, W), rand(H + 10, H * 1.35), rand(-1, 1), -rand(1.3, 3.4), true));
+    }
+    // 全屏皮蛋文字
+    for (i = 0; i < 6; i++) {
+      push(new PiDan(rand(0, W), rand(H + 10, H * 1.3), rand(-0.8, 0.8), -rand(1, 2.6), true));
+    }
+    // 冲击波
+    rings.push({ x: x, y: y, r: 0, max: Math.max(W, H) * 0.55, life: 1 });
+  }
+
+  function update(t) {
+    var i, p, r;
+    for (i = particles.length - 1; i >= 0; i--) {
+      p = particles[i];
+      p.update(t);
+      if (p.dead) particles.splice(i, 1);
+    }
+    for (i = rings.length - 1; i >= 0; i--) {
+      r = rings[i];
+      r.r += (r.max - r.r) * 0.1 * t;
+      r.life -= 0.022 * t;
+      if (r.life <= 0) rings.splice(i, 1);
+    }
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'lighter';
+    var i, r, p, alpha;
+    for (i = 0; i < rings.length; i++) {
+      r = rings[i];
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,150,200,' + (r.life * 0.55).toFixed(3) + ')';
+      ctx.lineWidth = 1.5 + r.life * 7;
+      ctx.shadowColor = 'rgba(255,120,190,0.9)';
+      ctx.shadowBlur = 18;
+      ctx.stroke();
+      ctx.restore();
+    }
+    for (i = 0; i < particles.length; i++) {
+      p = particles[i];
+      alpha = p.life;
+      if (alpha <= 0) continue;
+      if (alpha > 1) alpha = 1;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      p.draw();
+      ctx.restore();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  var lastTime = performance.now();
+  function loop(now) {
+    var t = (now - lastTime) / 16.667;
+    lastTime = now;
+    if (!isFinite(t) || t <= 0) t = 1;
+    if (t > 3) t = 3;
+    update(t);
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  window.addEventListener('pointerdown', function (e) {
+    burst(e.clientX, e.clientY);
+  }, { passive: true });
+  window.addEventListener('keydown', function (e) {
+    if (e.code === 'Space' || e.key === ' ') {
+      e.preventDefault();
+      burst(W / 2, H * 0.5);
+    }
+  });
+  window.addEventListener('load', function () {
+    setTimeout(function () { burst(W / 2, H * 0.45); }, 320);
+  });
+})();
+</script>
+</body>
+</html>
